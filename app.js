@@ -1,12 +1,6 @@
-/* =============================================
-   AirType VR — Spatial Air Drawing Application
-   4-Wall Virtual Room + Hand Gesture Drawing
-   ============================================= */
-
 (function () {
   'use strict';
 
-  // ── Constants ──
   const FINGER_TIPS = [4, 8, 12, 16, 20];
   const FINGER_PIPS = [3, 6, 10, 14, 18];
 
@@ -26,18 +20,16 @@
     { name: 'Left Wall',   color: '#76ff03', icon: '🟢' },
   ];
 
-  // ── State ──
   const state = {
     isRunning: false,
-    currentWall: 0,      // 0=Front, 1=Right, 2=Back, 3=Left
+    currentWall: 0,
     transitioning: false,
 
-    // Each wall has its own strokes
     walls: [
-      { strokes: [] }, // Front
-      { strokes: [] }, // Right
-      { strokes: [] }, // Back
-      { strokes: [] }, // Left
+      { strokes: [] },
+      { strokes: [] },
+      { strokes: [] },
+      { strokes: [] },
     ],
 
     mode: 'idle',
@@ -47,17 +39,14 @@
     currentStroke: [],
     isDrawing: false,
 
-    // Cursor smoothing
     smoothX: 0,
     smoothY: 0,
     smoothFactor: 0.35,
 
-    // Navigation gesture tracking
     navStartX: null,
     navActive: false,
     navCooldown: false,
 
-    // FPS
     fps: 0,
     frameCount: 0,
     lastFpsTime: performance.now(),
@@ -65,7 +54,6 @@
     eraserRadius: 30,
   };
 
-  // ── DOM ──
   const els = {
     loadingScreen: document.getElementById('loading-screen'),
     app: document.getElementById('app'),
@@ -105,7 +93,6 @@
   const overlayCtx = els.overlayCanvas.getContext('2d');
   const minimapCtx = els.minimapCanvas.getContext('2d');
 
-  // ── Init ──
   function init() {
     setTimeout(() => {
       els.loadingScreen.classList.add('fade-out');
@@ -137,11 +124,9 @@
     }
   }
 
-  // ── Events ──
   function bindEvents() {
     els.btnStartCamera.addEventListener('click', startCamera);
 
-    // Colors
     document.querySelectorAll('.color-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
@@ -160,7 +145,6 @@
       state.glow = parseInt(e.target.value);
     });
 
-    // Undo on current wall
     els.btnUndo.addEventListener('click', () => {
       const wall = state.walls[state.currentWall];
       if (wall.strokes.length > 0) {
@@ -170,7 +154,6 @@
       }
     });
 
-    // Clear current wall
     els.btnClearWall.addEventListener('click', () => {
       state.walls[state.currentWall].strokes = [];
       state.currentStroke = [];
@@ -178,16 +161,13 @@
       showToast(`${WALLS[state.currentWall].name} cleared`);
     });
 
-    // Save
     els.btnSave.addEventListener('click', saveCanvas);
 
-    // Wall navigation buttons
     els.navLeft.addEventListener('click', () => navigateWall(-1));
     els.navRight.addEventListener('click', () => navigateWall(1));
     els.wallArrowLeft.addEventListener('click', () => navigateWall(-1));
     els.wallArrowRight.addEventListener('click', () => navigateWall(1));
 
-    // Keyboard navigation
     document.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowLeft') navigateWall(-1);
       if (e.key === 'ArrowRight') navigateWall(1);
@@ -202,18 +182,15 @@
     els.thicknessDot.style.boxShadow = `0 0 ${state.glow}px ${state.color}`;
   }
 
-  // ── Wall Navigation ──
   function navigateWall(direction) {
     if (state.transitioning) return;
 
-    // Finish any current stroke first
     finishCurrentStroke();
 
     state.transitioning = true;
     const oldWall = state.currentWall;
     state.currentWall = (state.currentWall + direction + 4) % 4;
 
-    // Transition animation
     els.wallTransition.className = 'wall-transition active ' + (direction > 0 ? 'slide-left' : 'slide-right');
 
     setTimeout(() => {
@@ -255,17 +232,14 @@
     c.height = els.drawCanvas.height;
     const ctx = c.getContext('2d');
 
-    // Draw video
     ctx.save();
     ctx.translate(c.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(els.video, 0, 0, c.width, c.height);
     ctx.restore();
 
-    // Draw strokes
     ctx.drawImage(els.drawCanvas, 0, 0);
 
-    // Wall label
     ctx.font = '600 14px Inter, sans-serif';
     ctx.fillStyle = WALLS[state.currentWall].color;
     ctx.textAlign = 'left';
@@ -278,7 +252,6 @@
     showToast('Image saved!');
   }
 
-  // ── Camera ──
   async function startCamera() {
     try {
       showToast('Starting camera...');
@@ -327,16 +300,13 @@
     });
   }
 
-  // ── Results ──
   function onResults(results) {
     const w = els.overlayCanvas.width;
     const h = els.overlayCanvas.height;
     overlayCtx.clearRect(0, 0, w, h);
 
-    // Draw wall edge indicators
     drawWallEdgeIndicators(overlayCtx, w, h);
 
-    // FPS
     state.frameCount++;
     const now = performance.now();
     if (now - state.lastFpsTime >= 1000) {
@@ -354,17 +324,14 @@
       const tipX = (1 - landmarks[8].x) * w;
       const tipY = landmarks[8].y * h;
 
-      // Smooth position
       state.smoothX += (tipX - state.smoothX) * state.smoothFactor;
       state.smoothY += (tipY - state.smoothY) * state.smoothFactor;
       const sx = state.smoothX;
       const sy = state.smoothY;
 
-      // Draw skeleton (subtle)
       drawSkeleton(overlayCtx, landmarks, w, h);
       drawCursor(overlayCtx, sx, sy, gesture);
 
-      // Handle gesture modes
       if (gesture === 'point') {
         updateMode('drawing');
         if (!state.isDrawing) {
@@ -377,28 +344,24 @@
         state.navActive = false;
         state.navStartX = null;
       } else if (gesture === 'peace') {
-        // Peace sign = Navigation mode
         updateMode('navigating');
         finishCurrentStroke();
 
-        // Track horizontal movement for swipe
         if (!state.navActive) {
           state.navStartX = sx;
           state.navActive = true;
         } else if (state.navStartX !== null && !state.navCooldown) {
           const dx = sx - state.navStartX;
-          const swipeThreshold = w * 0.2; // 20% of screen width
+          const swipeThreshold = w * 0.2;
 
           if (Math.abs(dx) > swipeThreshold) {
-            // Swipe detected!
-            const direction = dx > 0 ? -1 : 1; // Swipe right = prev wall, left = next
+            const direction = dx > 0 ? -1 : 1;
             navigateWall(direction);
             state.navStartX = null;
             state.navCooldown = true;
             setTimeout(() => { state.navCooldown = false; }, 800);
           }
 
-          // Draw swipe progress indicator
           drawSwipeIndicator(overlayCtx, sx, sy, state.navStartX, w, h);
         }
       } else if (gesture === 'fist') {
@@ -422,11 +385,9 @@
     }
   }
 
-  // ── Gesture Detection ──
   function detectGesture(landmarks) {
     const fingers = [];
 
-    // Thumb
     const isRightHand = landmarks[17].x < landmarks[5].x;
     if (isRightHand) {
       fingers.push(landmarks[4].x < landmarks[3].x ? 1 : 0);
@@ -434,29 +395,24 @@
       fingers.push(landmarks[4].x > landmarks[3].x ? 1 : 0);
     }
 
-    // Index, Middle, Ring, Pinky
     for (let i = 1; i < 5; i++) {
       fingers.push(landmarks[FINGER_TIPS[i]].y < landmarks[FINGER_PIPS[i]].y ? 1 : 0);
     }
 
     const extended = fingers.reduce((a, b) => a + b, 0);
 
-    // Point: only index
     if (fingers[1] === 1 && fingers[2] === 0 && fingers[3] === 0 && fingers[4] === 0) {
       return 'point';
     }
 
-    // Peace: index + middle only
     if (fingers[1] === 1 && fingers[2] === 1 && fingers[3] === 0 && fingers[4] === 0) {
       return 'peace';
     }
 
-    // Fist: all down
     if (extended <= 1) {
       return 'fist';
     }
 
-    // Open hand
     if (extended >= 4) {
       return 'open';
     }
@@ -479,7 +435,6 @@
     if (mode !== 'idle') els.modeIndicator.classList.add(mode);
   }
 
-  // ── Drawing ──
   function drawCurrentStrokeOnCanvas() {
     redrawCurrentWall();
     drawStroke(drawCtx, state.currentStroke, state.color, state.thickness, state.glow);
@@ -517,7 +472,6 @@
     wall.strokes.forEach(s => drawStroke(drawCtx, s.points, s.color, s.thickness, s.glow));
   }
 
-  // ── Eraser ──
   function eraseAt(x, y) {
     const r = state.eraserRadius;
     overlayCtx.beginPath();
@@ -535,15 +489,12 @@
     redrawCurrentWall();
   }
 
-  // ── Visual Overlays ──
   function drawWallEdgeIndicators(ctx, w, h) {
     const wallInfo = WALLS[state.currentWall];
 
-    // Subtle colored border glow for current wall
     ctx.save();
     const borderWidth = 3;
 
-    // Top border
     const grad = ctx.createLinearGradient(0, 0, w, 0);
     grad.addColorStop(0, 'transparent');
     grad.addColorStop(0.3, wallInfo.color + '30');
@@ -552,25 +503,21 @@
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, borderWidth);
 
-    // Side indicators showing adjacent walls
     const leftWall = WALLS[(state.currentWall + 3) % 4];
     const rightWall = WALLS[(state.currentWall + 1) % 4];
 
-    // Left edge gradient
     const leftGrad = ctx.createLinearGradient(0, 0, 60, 0);
     leftGrad.addColorStop(0, leftWall.color + '25');
     leftGrad.addColorStop(1, 'transparent');
     ctx.fillStyle = leftGrad;
     ctx.fillRect(0, 0, 60, h);
 
-    // Right edge gradient
     const rightGrad = ctx.createLinearGradient(w, 0, w - 60, 0);
     rightGrad.addColorStop(0, rightWall.color + '25');
     rightGrad.addColorStop(1, 'transparent');
     ctx.fillStyle = rightGrad;
     ctx.fillRect(w - 60, 0, 60, h);
 
-    // Left wall label
     ctx.save();
     ctx.translate(14, h / 2);
     ctx.rotate(-Math.PI / 2);
@@ -580,7 +527,6 @@
     ctx.fillText(`← ${leftWall.name}`, 0, 0);
     ctx.restore();
 
-    // Right wall label
     ctx.save();
     ctx.translate(w - 14, h / 2);
     ctx.rotate(Math.PI / 2);
@@ -599,7 +545,6 @@
     const threshold = w * 0.2;
     const progress = Math.min(Math.abs(dx) / threshold, 1);
 
-    // Draw swipe arc
     ctx.save();
     ctx.beginPath();
     ctx.arc(startX, sy, 40, 0, Math.PI * 2 * progress);
@@ -607,7 +552,6 @@
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    // Arrow direction
     if (progress > 0.3) {
       const arrowX = sx;
       const arrowY = sy;
@@ -622,7 +566,6 @@
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // Show target wall name
       const targetWall = WALLS[(state.currentWall + (dx > 0 ? -1 : 1) + 4) % 4];
       ctx.font = `600 ${12 + progress * 4}px Inter, sans-serif`;
       ctx.fillStyle = targetWall.color + (Math.round(progress * 200)).toString(16).padStart(2, '0');
@@ -683,7 +626,6 @@
       ctx.fillStyle = '#ff1744';
       ctx.fill();
     } else if (gesture === 'peace') {
-      // Navigation cursor
       ctx.beginPath();
       ctx.arc(x, y, 16, 0, Math.PI * 2);
       ctx.strokeStyle = 'rgba(168,85,247,0.5)';
@@ -693,7 +635,6 @@
       ctx.arc(x, y, 4, 0, Math.PI * 2);
       ctx.fillStyle = '#a855f7';
       ctx.fill();
-      // Directional arrows
       const arrowLen = 22;
       ctx.strokeStyle = 'rgba(168,85,247,0.3)';
       ctx.lineWidth = 1.5;
@@ -711,7 +652,6 @@
     }
   }
 
-  // ── Minimap ──
   function drawMinimap() {
     const c = els.minimapCanvas;
     const ctx = minimapCtx;
@@ -723,21 +663,18 @@
 
     ctx.clearRect(0, 0, w, h);
 
-    // Background
     ctx.fillStyle = 'rgba(10,10,18,0.9)';
     ctx.fillRect(0, 0, w, h);
 
-    // Room outline
     ctx.strokeStyle = 'rgba(255,255,255,0.1)';
     ctx.lineWidth = 1;
     ctx.strokeRect(cx - roomSize, cy - roomSize, roomSize * 2, roomSize * 2);
 
-    // Draw each wall
     const wallPositions = [
-      { x1: cx - roomSize, y1: cy - roomSize, x2: cx + roomSize, y2: cy - roomSize }, // Front (top)
-      { x1: cx + roomSize, y1: cy - roomSize, x2: cx + roomSize, y2: cy + roomSize }, // Right
-      { x1: cx + roomSize, y1: cy + roomSize, x2: cx - roomSize, y2: cy + roomSize }, // Back (bottom)
-      { x1: cx - roomSize, y1: cy + roomSize, x2: cx - roomSize, y2: cy - roomSize }, // Left
+      { x1: cx - roomSize, y1: cy - roomSize, x2: cx + roomSize, y2: cy - roomSize },
+      { x1: cx + roomSize, y1: cy - roomSize, x2: cx + roomSize, y2: cy + roomSize },
+      { x1: cx + roomSize, y1: cy + roomSize, x2: cx - roomSize, y2: cy + roomSize },
+      { x1: cx - roomSize, y1: cy + roomSize, x2: cx - roomSize, y2: cy - roomSize },
     ];
 
     wallPositions.forEach((wp, i) => {
@@ -751,7 +688,6 @@
       ctx.lineWidth = isActive ? 3 : (hasContent ? 2 : 1);
       ctx.stroke();
 
-      // Stroke count indicator
       if (hasContent) {
         const mx = (wp.x1 + wp.x2) / 2;
         const my = (wp.y1 + wp.y2) / 2;
@@ -773,7 +709,6 @@
       }
     });
 
-    // Wall labels
     const labels = ['F', 'R', 'B', 'L'];
     const labelPos = [
       { x: cx, y: cy - roomSize - 10 },
@@ -790,13 +725,11 @@
       ctx.fillText(l, labelPos[i].x, labelPos[i].y);
     });
 
-    // Center dot (user position)
     ctx.beginPath();
     ctx.arc(cx, cy, 3, 0, Math.PI * 2);
     ctx.fillStyle = '#fff';
     ctx.fill();
 
-    // Direction indicator (cone/triangle pointing at current wall)
     const angle = [-Math.PI / 2, 0, Math.PI / 2, Math.PI][state.currentWall];
     ctx.save();
     ctx.translate(cx, cy);
@@ -811,7 +744,6 @@
     ctx.restore();
   }
 
-  // ── Toast ──
   function showToast(msg) {
     els.toastMessage.textContent = msg;
     els.toast.classList.remove('hidden');
@@ -822,6 +754,5 @@
     }, 2000);
   }
 
-  // ── Start ──
   init();
 })();
