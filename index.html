@@ -49,7 +49,6 @@
 
       <div class="wall-transition" id="wall-transition"></div>
 
-      <!-- Top Bar -->
       <div class="top-bar">
         <div class="top-left">
           <div class="logo">
@@ -78,19 +77,16 @@
         </div>
       </div>
 
-      <!-- Room Minimap (bottom left) -->
       <div class="room-minimap" id="room-minimap">
         <canvas id="minimap-canvas" width="120" height="120"></canvas>
         <div class="minimap-label">Room View</div>
       </div>
 
-      <!-- Mode Indicator (bottom center) -->
       <div class="mode-indicator" id="mode-indicator">
         <span class="mode-icon" id="mode-icon">✋</span>
         <span class="mode-label" id="mode-label">IDLE</span>
       </div>
 
-      <!-- Wall Navigation Buttons (left & right edges) -->
       <button class="wall-nav-btn wall-nav-left" id="nav-left" title="Previous Wall">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="15 18 9 12 15 6" />
@@ -102,7 +98,6 @@
         </svg>
       </button>
 
-      <!-- Right Toolbar -->
       <div class="toolbar" id="toolbar">
         <div class="toolbar-section">
           <div class="toolbar-title">COLORS</div>
@@ -152,7 +147,6 @@
         </div>
       </div>
 
-      <!-- Camera prompt -->
       <div class="camera-prompt" id="camera-prompt">
         <div class="prompt-content">
           <div class="prompt-icon">
@@ -197,11 +191,9 @@
       </div>
     </div>
 
-    <!-- Toast -->
     <div class="toast hidden" id="toast"><span id="toast-message"></span></div>
   </div>
 
-  <!-- MediaPipe -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
