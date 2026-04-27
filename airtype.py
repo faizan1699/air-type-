@@ -70,6 +70,21 @@ def detect_gesture(landmarks):
     return "open"
 
 
+def has_3d_depth(wlm):
+    if not wlm or len(wlm) < 21:
+        return True
+    zs = [p.z for p in wlm]
+    xs = [p.x for p in wlm]
+    ys = [p.y for p in wlm]
+    z_range = max(zs) - min(zs)
+    xy_diag = math.hypot(max(xs) - min(xs), max(ys) - min(ys))
+    if z_range < 0.015:
+        return False
+    if xy_diag > 0 and z_range / xy_diag < 0.08:
+        return False
+    return True
+
+
 def is_real_hand(lm):
     if not (0 < lm[0].x < 1 and 0 < lm[0].y < 1):
         return False
@@ -92,7 +107,7 @@ def is_real_hand(lm):
     return True
 
 
-def filter_real_hands(landmarks_data, handedness):
+def filter_real_hands(landmarks_data, handedness, world_landmarks_data):
     real_lms = []
     real_hd = []
     for i, lm in enumerate(landmarks_data):
@@ -101,11 +116,15 @@ def filter_real_hands(landmarks_data, handedness):
             if handedness is not None and i < len(handedness)
             else 0.5
         )
-        if conf < 0.7:
+        if conf < 0.85:
             continue
-        if is_real_hand(lm):
-            real_lms.append(lm)
-            real_hd.append(handedness[i] if handedness is not None and i < len(handedness) else None)
+        if not is_real_hand(lm):
+            continue
+        wlm = world_landmarks_data[i] if i < len(world_landmarks_data) else None
+        if not has_3d_depth(wlm):
+            continue
+        real_lms.append(lm)
+        real_hd.append(handedness[i] if handedness is not None and i < len(handedness) else None)
     return real_lms, real_hd
 
 
@@ -234,8 +253,8 @@ def main():
     hands = mp_hands.Hands(
         max_num_hands=2,
         model_complexity=1,
-        min_detection_confidence=0.6,
-        min_tracking_confidence=0.5,
+        min_detection_confidence=0.8,
+        min_tracking_confidence=0.6,
     )
 
     canvas = None
@@ -253,6 +272,7 @@ def main():
     last_hand_seen = time.time()
     auto_reset_done = False
     AUTO_RESET_SEC = 2.0
+    prev_wrists = []
 
     fps_buf = deque(maxlen=30)
     last_t = time.time()
@@ -276,8 +296,24 @@ def main():
 
         landmarks_list = results.multi_hand_landmarks or []
         landmarks_data = [lm.landmark for lm in landmarks_list]
+        world_landmarks_list = results.multi_hand_world_landmarks or []
+        world_landmarks_data = [wl.landmark for wl in world_landmarks_list]
         handedness = results.multi_handedness
-        real_lms, real_hd = filter_real_hands(landmarks_data, handedness)
+        candidate_lms, candidate_hd = filter_real_hands(landmarks_data, handedness, world_landmarks_data)
+
+        confirmed_lms = []
+        confirmed_hd = []
+        cur_wrists = []
+        for i, lm in enumerate(candidate_lms):
+            wx, wy = lm[0].x, lm[0].y
+            cur_wrists.append((wx, wy))
+            matched = any(math.hypot(px - wx, py - wy) < 0.15 for (px, py) in prev_wrists)
+            if matched:
+                confirmed_lms.append(lm)
+                confirmed_hd.append(candidate_hd[i])
+        prev_wrists = cur_wrists
+        real_lms = confirmed_lms
+        real_hd = confirmed_hd
 
         if real_lms:
             last_hand_seen = time.time()

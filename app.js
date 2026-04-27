@@ -42,6 +42,8 @@
 
     lastHandSeenTime: performance.now(),
     autoResetDone: false,
+
+    prevHandWrists: [],
   };
 
   const AUTO_RESET_MS = 2000;
@@ -212,8 +214,8 @@
     hands.setOptions({
       maxNumHands: 2,
       modelComplexity: 1,
-      minDetectionConfidence: 0.6,
-      minTrackingConfidence: 0.5
+      minDetectionConfidence: 0.8,
+      minTrackingConfidence: 0.6
     });
     hands.onResults(onResults);
 
@@ -246,10 +248,42 @@
     }
     els.fpsVal.textContent = state.fps;
 
-    const realHandCount = countRealHands(results.multiHandLandmarks, results.multiHandedness);
-    els.handsVal.textContent = String(realHandCount);
+    const candidateHands = [];
+    const candidateHandedness = [];
+    if (results.multiHandLandmarks) {
+      for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+        const lm = results.multiHandLandmarks[i];
+        const wlm = results.multiHandWorldLandmarks && results.multiHandWorldLandmarks[i];
+        const hd = results.multiHandedness && results.multiHandedness[i];
+        const conf = hd ? hd.score : 0.5;
+        if (conf < 0.85) continue;
+        if (!isRealHand(lm)) continue;
+        if (!has3DDepth(wlm)) continue;
+        candidateHands.push(lm);
+        candidateHandedness.push(hd);
+      }
+    }
 
-    if (realHandCount > 0) {
+    const realHandsList = [];
+    const realHandedness = [];
+    const currentWrists = [];
+    for (let i = 0; i < candidateHands.length; i++) {
+      const lm = candidateHands[i];
+      const wx = lm[0].x, wy = lm[0].y;
+      const matched = state.prevHandWrists.some(p =>
+        Math.hypot(p.x - wx, p.y - wy) < 0.15
+      );
+      currentWrists.push({ x: wx, y: wy });
+      if (matched) {
+        realHandsList.push(lm);
+        realHandedness.push(candidateHandedness[i]);
+      }
+    }
+    state.prevHandWrists = currentWrists;
+
+    els.handsVal.textContent = String(realHandsList.length);
+
+    if (realHandsList.length > 0) {
       state.lastHandSeenTime = now;
       state.autoResetDone = false;
     } else if (
@@ -263,20 +297,6 @@
       redrawAll();
       state.autoResetDone = true;
       showToast('Canvas reset (no hands detected)');
-    }
-
-    const realHandsList = [];
-    const realHandedness = [];
-    if (results.multiHandLandmarks) {
-      for (let i = 0; i < results.multiHandLandmarks.length; i++) {
-        const lm = results.multiHandLandmarks[i];
-        const hd = results.multiHandedness && results.multiHandedness[i];
-        const conf = hd ? hd.score : 0.5;
-        if (conf >= 0.7 && isRealHand(lm)) {
-          realHandsList.push(lm);
-          realHandedness.push(hd);
-        }
-      }
     }
 
     const candidatePlay = realHandsList.length >= 2 && bothHandsInFrame(
@@ -477,6 +497,29 @@
     return landmarksList[bestIdx];
   }
 
+  function has3DDepth(wlm) {
+    if (!wlm || wlm.length < 21) return true;
+    let minZ = Infinity, maxZ = -Infinity;
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    for (let i = 0; i < wlm.length; i++) {
+      const z = wlm[i].z;
+      const x = wlm[i].x;
+      const y = wlm[i].y;
+      if (z < minZ) minZ = z;
+      if (z > maxZ) maxZ = z;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    const zRange = maxZ - minZ;
+    const xyDiag = Math.hypot(maxX - minX, maxY - minY);
+    if (zRange < 0.015) return false;
+    if (xyDiag > 0 && zRange / xyDiag < 0.08) return false;
+    return true;
+  }
+
   function isRealHand(lm) {
     if (lm[0].x < 0 || lm[0].x > 1 || lm[0].y < 0 || lm[0].y > 1) return false;
 
@@ -502,17 +545,6 @@
     if (bw > 0.65 || bh > 0.65) return false;
 
     return true;
-  }
-
-  function countRealHands(landmarksList, handedness) {
-    if (!landmarksList) return 0;
-    let count = 0;
-    for (let i = 0; i < landmarksList.length; i++) {
-      const conf = handedness && handedness[i] ? handedness[i].score : 0.5;
-      if (conf < 0.7) continue;
-      if (isRealHand(landmarksList[i])) count++;
-    }
-    return count;
   }
 
   function bothHandsInFrame(lm1, lm2, handedness) {
