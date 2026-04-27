@@ -13,24 +13,10 @@
     [0,17]
   ];
 
-  const WALLS = [
-    { name: 'Front Wall',  color: '#00e5ff', icon: '🔵' },
-    { name: 'Right Wall',  color: '#a855f7', icon: '🟣' },
-    { name: 'Back Wall',   color: '#ff6d00', icon: '🟠' },
-    { name: 'Left Wall',   color: '#76ff03', icon: '🟢' },
-  ];
-
   const state = {
     isRunning: false,
-    currentWall: 0,
-    transitioning: false,
 
-    walls: [
-      { strokes: [] },
-      { strokes: [] },
-      { strokes: [] },
-      { strokes: [] },
-    ],
+    strokes: [],
 
     mode: 'idle',
     color: '#00e5ff',
@@ -43,16 +29,24 @@
     smoothY: 0,
     smoothFactor: 0.35,
 
-    navStartX: null,
-    navActive: false,
-    navCooldown: false,
-
     fps: 0,
     frameCount: 0,
     lastFpsTime: performance.now(),
 
     eraserRadius: 30,
+
+    playMode: false,
+    playParticles: [],
+    playPulse: 0,
+    playValidStreak: 0,
+
+    lastHandSeenTime: performance.now(),
+    autoResetDone: false,
   };
+
+  const AUTO_RESET_MS = 2000;
+
+  const PLAY_RAINBOW = ['#ff1744', '#ff9100', '#ffea00', '#76ff03', '#00e5ff', '#2979ff', '#d500f9'];
 
   const els = {
     loadingScreen: document.getElementById('loading-screen'),
@@ -76,22 +70,12 @@
     btnUndo: document.getElementById('btn-undo'),
     btnClearWall: document.getElementById('btn-clear-wall'),
     btnSave: document.getElementById('btn-save'),
-    wallNameDisplay: document.getElementById('wall-name-display'),
-    wallCurrentName: document.getElementById('wall-current-name'),
-    wallArrowLeft: document.getElementById('wall-arrow-left'),
-    wallArrowRight: document.getElementById('wall-arrow-right'),
-    wallTransition: document.getElementById('wall-transition'),
-    roomMinimap: document.getElementById('room-minimap'),
-    minimapCanvas: document.getElementById('minimap-canvas'),
-    navLeft: document.getElementById('nav-left'),
-    navRight: document.getElementById('nav-right'),
     toast: document.getElementById('toast'),
     toastMessage: document.getElementById('toast-message'),
   };
 
   const drawCtx = els.drawCanvas.getContext('2d');
   const overlayCtx = els.overlayCanvas.getContext('2d');
-  const minimapCtx = els.minimapCanvas.getContext('2d');
 
   function init() {
     setTimeout(() => {
@@ -104,7 +88,6 @@
 
     bindEvents();
     resizeCanvases();
-    updateWallDisplay();
 
     const ro = new ResizeObserver(() => resizeCanvases());
     ro.observe(els.canvasArea);
@@ -120,7 +103,7 @@
       els.drawCanvas.height = h;
       els.overlayCanvas.width = w;
       els.overlayCanvas.height = h;
-      redrawCurrentWall();
+      redrawAll();
     }
   }
 
@@ -146,32 +129,21 @@
     });
 
     els.btnUndo.addEventListener('click', () => {
-      const wall = state.walls[state.currentWall];
-      if (wall.strokes.length > 0) {
-        wall.strokes.pop();
-        redrawCurrentWall();
+      if (state.strokes.length > 0) {
+        state.strokes.pop();
+        redrawAll();
         showToast('Undo');
       }
     });
 
     els.btnClearWall.addEventListener('click', () => {
-      state.walls[state.currentWall].strokes = [];
+      state.strokes = [];
       state.currentStroke = [];
-      redrawCurrentWall();
-      showToast(`${WALLS[state.currentWall].name} cleared`);
+      redrawAll();
+      showToast('Canvas cleared');
     });
 
     els.btnSave.addEventListener('click', saveCanvas);
-
-    els.navLeft.addEventListener('click', () => navigateWall(-1));
-    els.navRight.addEventListener('click', () => navigateWall(1));
-    els.wallArrowLeft.addEventListener('click', () => navigateWall(-1));
-    els.wallArrowRight.addEventListener('click', () => navigateWall(1));
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowLeft') navigateWall(-1);
-      if (e.key === 'ArrowRight') navigateWall(1);
-    });
   }
 
   function updateThicknessPreview() {
@@ -182,40 +154,9 @@
     els.thicknessDot.style.boxShadow = `0 0 ${state.glow}px ${state.color}`;
   }
 
-  function navigateWall(direction) {
-    if (state.transitioning) return;
-
-    finishCurrentStroke();
-
-    state.transitioning = true;
-    const oldWall = state.currentWall;
-    state.currentWall = (state.currentWall + direction + 4) % 4;
-
-    els.wallTransition.className = 'wall-transition active ' + (direction > 0 ? 'slide-left' : 'slide-right');
-
-    setTimeout(() => {
-      redrawCurrentWall();
-      updateWallDisplay();
-      drawMinimap();
-
-      setTimeout(() => {
-        els.wallTransition.className = 'wall-transition';
-        state.transitioning = false;
-      }, 300);
-    }, 150);
-
-    showToast(`${WALLS[state.currentWall].icon} ${WALLS[state.currentWall].name}`);
-  }
-
-  function updateWallDisplay() {
-    const wall = WALLS[state.currentWall];
-    els.wallCurrentName.textContent = wall.name;
-    els.wallCurrentName.style.color = wall.color;
-  }
-
   function finishCurrentStroke() {
     if (state.isDrawing && state.currentStroke.length > 1) {
-      state.walls[state.currentWall].strokes.push({
+      state.strokes.push({
         points: [...state.currentStroke],
         color: state.color,
         thickness: state.thickness,
@@ -240,13 +181,8 @@
 
     ctx.drawImage(els.drawCanvas, 0, 0);
 
-    ctx.font = '600 14px Inter, sans-serif';
-    ctx.fillStyle = WALLS[state.currentWall].color;
-    ctx.textAlign = 'left';
-    ctx.fillText(WALLS[state.currentWall].name, 16, c.height - 16);
-
     const link = document.createElement('a');
-    link.download = `airtype-${WALLS[state.currentWall].name.replace(' ', '-')}-${Date.now()}.png`;
+    link.download = `airtype-${Date.now()}.png`;
     link.href = c.toDataURL('image/png');
     link.click();
     showToast('Image saved!');
@@ -274,10 +210,10 @@
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
     });
     hands.setOptions({
-      maxNumHands: 1,
+      maxNumHands: 2,
       modelComplexity: 1,
-      minDetectionConfidence: 0.7,
-      minTrackingConfidence: 0.6
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.5
     });
     hands.onResults(onResults);
 
@@ -291,12 +227,8 @@
       els.statsGroup.classList.add('visible');
       els.modeIndicator.classList.add('visible');
       els.toolbar.classList.add('visible');
-      els.roomMinimap.classList.add('visible');
-      els.navLeft.classList.add('visible');
-      els.navRight.classList.add('visible');
       resizeCanvases();
-      drawMinimap();
-      showToast('Welcome! ☝️ Point to draw, ✌️ Swipe to change wall');
+      showToast('Welcome! ☝️ Point to draw, ✊ Fist to erase, 🙌 Both hands to play');
     });
   }
 
@@ -304,8 +236,6 @@
     const w = els.overlayCanvas.width;
     const h = els.overlayCanvas.height;
     overlayCtx.clearRect(0, 0, w, h);
-
-    drawWallEdgeIndicators(overlayCtx, w, h);
 
     state.frameCount++;
     const now = performance.now();
@@ -316,16 +246,92 @@
     }
     els.fpsVal.textContent = state.fps;
 
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-      const landmarks = results.multiHandLandmarks[0];
-      els.handsVal.textContent = '1';
+    const realHandCount = countRealHands(results.multiHandLandmarks, results.multiHandedness);
+    els.handsVal.textContent = String(realHandCount);
 
+    if (realHandCount > 0) {
+      state.lastHandSeenTime = now;
+      state.autoResetDone = false;
+    } else if (
+      !state.autoResetDone &&
+      now - state.lastHandSeenTime >= AUTO_RESET_MS &&
+      (state.strokes.length > 0 || state.currentStroke.length > 0)
+    ) {
+      state.strokes = [];
+      state.currentStroke = [];
+      state.isDrawing = false;
+      redrawAll();
+      state.autoResetDone = true;
+      showToast('Canvas reset (no hands detected)');
+    }
+
+    const realHandsList = [];
+    const realHandedness = [];
+    if (results.multiHandLandmarks) {
+      for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+        const lm = results.multiHandLandmarks[i];
+        const hd = results.multiHandedness && results.multiHandedness[i];
+        const conf = hd ? hd.score : 0.5;
+        if (conf >= 0.7 && isRealHand(lm)) {
+          realHandsList.push(lm);
+          realHandedness.push(hd);
+        }
+      }
+    }
+
+    const candidatePlay = realHandsList.length >= 2 && bothHandsInFrame(
+      realHandsList[0],
+      realHandsList[1],
+      realHandedness
+    );
+
+    if (candidatePlay) {
+      state.playValidStreak = Math.min(state.playValidStreak + 1, 10);
+    } else {
+      state.playValidStreak = 0;
+    }
+
+    const validPlay = state.playMode ? candidatePlay : state.playValidStreak >= 2;
+
+    if (validPlay) {
+      if (!state.playMode) {
+        finishCurrentStroke();
+        state.playMode = true;
+      }
+      updateMode('play');
+      drawSkeleton(overlayCtx, realHandsList[0], w, h);
+      drawSkeleton(overlayCtx, realHandsList[1], w, h);
+      drawHandLink(overlayCtx, realHandsList[0], realHandsList[1], w, h);
+      return;
+    }
+
+    if (state.playMode) {
+      state.playMode = false;
+      state.playParticles = [];
+      state.smoothX = 0;
+      state.smoothY = 0;
+    }
+
+    if (realHandsList.length >= 2 && !validPlay) {
+      drawPlayHint(overlayCtx, w);
+    }
+
+    const landmarks = realHandsList.length >= 1
+      ? pickPrimaryHand(realHandsList, realHandedness)
+      : null;
+
+    if (landmarks) {
       const gesture = detectGesture(landmarks);
       const tipX = (1 - landmarks[8].x) * w;
       const tipY = landmarks[8].y * h;
 
-      state.smoothX += (tipX - state.smoothX) * state.smoothFactor;
-      state.smoothY += (tipY - state.smoothY) * state.smoothFactor;
+      if (state.smoothX === 0 && state.smoothY === 0) {
+        state.smoothX = tipX;
+        state.smoothY = tipY;
+      } else {
+        state.smoothX += (tipX - state.smoothX) * state.smoothFactor;
+        state.smoothY += (tipY - state.smoothY) * state.smoothFactor;
+      }
       const sx = state.smoothX;
       const sy = state.smoothY;
 
@@ -341,47 +347,17 @@
           state.currentStroke.push({ x: sx, y: sy });
           drawCurrentStrokeOnCanvas();
         }
-        state.navActive = false;
-        state.navStartX = null;
-      } else if (gesture === 'peace') {
-        updateMode('navigating');
-        finishCurrentStroke();
-
-        if (!state.navActive) {
-          state.navStartX = sx;
-          state.navActive = true;
-        } else if (state.navStartX !== null && !state.navCooldown) {
-          const dx = sx - state.navStartX;
-          const swipeThreshold = w * 0.2;
-
-          if (Math.abs(dx) > swipeThreshold) {
-            const direction = dx > 0 ? -1 : 1;
-            navigateWall(direction);
-            state.navStartX = null;
-            state.navCooldown = true;
-            setTimeout(() => { state.navCooldown = false; }, 800);
-          }
-
-          drawSwipeIndicator(overlayCtx, sx, sy, state.navStartX, w, h);
-        }
       } else if (gesture === 'fist') {
         updateMode('erasing');
         finishCurrentStroke();
         eraseAt(sx, sy);
-        state.navActive = false;
-        state.navStartX = null;
       } else {
         updateMode('idle');
         finishCurrentStroke();
-        state.navActive = false;
-        state.navStartX = null;
       }
     } else {
-      els.handsVal.textContent = '0';
       finishCurrentStroke();
       updateMode('idle');
-      state.navActive = false;
-      state.navStartX = null;
     }
   }
 
@@ -405,16 +381,8 @@
       return 'point';
     }
 
-    if (fingers[1] === 1 && fingers[2] === 1 && fingers[3] === 0 && fingers[4] === 0) {
-      return 'peace';
-    }
-
     if (extended <= 1) {
       return 'fist';
-    }
-
-    if (extended >= 4) {
-      return 'open';
     }
 
     return 'open';
@@ -423,20 +391,20 @@
   function updateMode(mode) {
     state.mode = mode;
     const config = {
-      drawing:    { icon: '✏️', label: 'DRAWING' },
-      navigating: { icon: '🧭', label: 'NAVIGATE' },
-      erasing:    { icon: '🧹', label: 'ERASING' },
-      idle:       { icon: '✋', label: 'PAUSED' },
+      drawing: { icon: '✏️', label: 'DRAWING' },
+      erasing: { icon: '🧹', label: 'ERASING' },
+      idle:    { icon: '✋', label: 'PAUSED' },
+      play:    { icon: '🎉', label: 'PLAY MODE' },
     };
     const c = config[mode] || config.idle;
     els.modeIcon.textContent = c.icon;
     els.modeLabel.textContent = c.label;
-    els.modeIndicator.classList.remove('drawing', 'erasing', 'navigating');
+    els.modeIndicator.classList.remove('drawing', 'erasing', 'play');
     if (mode !== 'idle') els.modeIndicator.classList.add(mode);
   }
 
   function drawCurrentStrokeOnCanvas() {
-    redrawCurrentWall();
+    redrawAll();
     drawStroke(drawCtx, state.currentStroke, state.color, state.thickness, state.glow);
   }
 
@@ -466,10 +434,9 @@
     ctx.restore();
   }
 
-  function redrawCurrentWall() {
+  function redrawAll() {
     drawCtx.clearRect(0, 0, els.drawCanvas.width, els.drawCanvas.height);
-    const wall = state.walls[state.currentWall];
-    wall.strokes.forEach(s => drawStroke(drawCtx, s.points, s.color, s.thickness, s.glow));
+    state.strokes.forEach(s => drawStroke(drawCtx, s.points, s.color, s.thickness, s.glow));
   }
 
   function eraseAt(x, y) {
@@ -482,103 +449,194 @@
     overlayCtx.stroke();
     overlayCtx.setLineDash([]);
 
-    const wall = state.walls[state.currentWall];
-    wall.strokes = wall.strokes.filter(stroke =>
+    state.strokes = state.strokes.filter(stroke =>
       !stroke.points.some(p => Math.hypot(p.x - x, p.y - y) < r)
     );
-    redrawCurrentWall();
+    redrawAll();
   }
 
-  function drawWallEdgeIndicators(ctx, w, h) {
-    const wallInfo = WALLS[state.currentWall];
+  function pickPrimaryHand(landmarksList, handedness) {
+    if (!landmarksList || landmarksList.length === 0) return null;
+    if (landmarksList.length === 1) return landmarksList[0];
 
+    let bestIdx = 0;
+    let bestScore = -1;
+    for (let i = 0; i < landmarksList.length; i++) {
+      const lm = landmarksList[i];
+      const conf = handedness && handedness[i] ? handedness[i].score : 0.5;
+      const span = Math.hypot(lm[9].x - lm[0].x, lm[9].y - lm[0].y);
+      const wristIn =
+        lm[0].x > 0.02 && lm[0].x < 0.98 &&
+        lm[0].y > 0.02 && lm[0].y < 0.98 ? 1 : 0;
+      const score = conf * 2 + span * 5 + wristIn;
+      if (score > bestScore) {
+        bestScore = score;
+        bestIdx = i;
+      }
+    }
+    return landmarksList[bestIdx];
+  }
+
+  function isRealHand(lm) {
+    if (lm[0].x < 0 || lm[0].x > 1 || lm[0].y < 0 || lm[0].y > 1) return false;
+
+    const span = Math.hypot(lm[9].x - lm[0].x, lm[9].y - lm[0].y);
+    if (span < 0.04) return false;
+
+    const wristToMcp = [5, 9, 13, 17].map(i =>
+      Math.hypot(lm[i].x - lm[0].x, lm[i].y - lm[0].y)
+    );
+    const maxMcp = Math.max.apply(null, wristToMcp);
+    const minMcp = Math.min.apply(null, wristToMcp);
+    if (minMcp < 0.001 || maxMcp / minMcp > 2.2) return false;
+
+    let minX = 1, minY = 1, maxX = 0, maxY = 0;
+    for (let i = 0; i < lm.length; i++) {
+      if (lm[i].x < minX) minX = lm[i].x;
+      if (lm[i].x > maxX) maxX = lm[i].x;
+      if (lm[i].y < minY) minY = lm[i].y;
+      if (lm[i].y > maxY) maxY = lm[i].y;
+    }
+    const bw = maxX - minX;
+    const bh = maxY - minY;
+    if (bw > 0.65 || bh > 0.65) return false;
+
+    return true;
+  }
+
+  function countRealHands(landmarksList, handedness) {
+    if (!landmarksList) return 0;
+    let count = 0;
+    for (let i = 0; i < landmarksList.length; i++) {
+      const conf = handedness && handedness[i] ? handedness[i].score : 0.5;
+      if (conf < 0.7) continue;
+      if (isRealHand(landmarksList[i])) count++;
+    }
+    return count;
+  }
+
+  function bothHandsInFrame(lm1, lm2, handedness) {
+    if (handedness && handedness.length >= 2) {
+      if (handedness[0].score < 0.7 || handedness[1].score < 0.7) return false;
+    }
+    if (!isRealHand(lm1) || !isRealHand(lm2)) return false;
+
+    const dx = lm1[0].x - lm2[0].x;
+    const dy = lm1[0].y - lm2[0].y;
+    if (Math.hypot(dx, dy) < 0.1) return false;
+
+    return true;
+  }
+
+  function drawPlayHint(ctx, w) {
     ctx.save();
-    const borderWidth = 3;
-
-    const grad = ctx.createLinearGradient(0, 0, w, 0);
-    grad.addColorStop(0, 'transparent');
-    grad.addColorStop(0.3, wallInfo.color + '30');
-    grad.addColorStop(0.7, wallInfo.color + '30');
-    grad.addColorStop(1, 'transparent');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, w, borderWidth);
-
-    const leftWall = WALLS[(state.currentWall + 3) % 4];
-    const rightWall = WALLS[(state.currentWall + 1) % 4];
-
-    const leftGrad = ctx.createLinearGradient(0, 0, 60, 0);
-    leftGrad.addColorStop(0, leftWall.color + '25');
-    leftGrad.addColorStop(1, 'transparent');
-    ctx.fillStyle = leftGrad;
-    ctx.fillRect(0, 0, 60, h);
-
-    const rightGrad = ctx.createLinearGradient(w, 0, w - 60, 0);
-    rightGrad.addColorStop(0, rightWall.color + '25');
-    rightGrad.addColorStop(1, 'transparent');
-    ctx.fillStyle = rightGrad;
-    ctx.fillRect(w - 60, 0, 60, h);
-
-    ctx.save();
-    ctx.translate(14, h / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.font = '600 10px Inter, sans-serif';
-    ctx.fillStyle = leftWall.color + '60';
+    ctx.font = '600 16px Inter, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`← ${leftWall.name}`, 0, 0);
-    ctx.restore();
-
-    ctx.save();
-    ctx.translate(w - 14, h / 2);
-    ctx.rotate(Math.PI / 2);
-    ctx.font = '600 10px Inter, sans-serif';
-    ctx.fillStyle = rightWall.color + '60';
-    ctx.textAlign = 'center';
-    ctx.fillText(`→ ${rightWall.name}`, 0, 0);
-    ctx.restore();
-
+    ctx.fillStyle = 'rgba(255,234,0,0.85)';
+    ctx.shadowColor = 'rgba(0,0,0,0.6)';
+    ctx.shadowBlur = 8;
+    ctx.fillText('🙌  Show both palms with fingers spread, fully in frame', w / 2, 60);
     ctx.restore();
   }
 
-  function drawSwipeIndicator(ctx, sx, sy, startX, w, h) {
-    if (startX === null) return;
-    const dx = sx - startX;
-    const threshold = w * 0.2;
-    const progress = Math.min(Math.abs(dx) / threshold, 1);
+  function drawHandLink(ctx, lm1, lm2, w, h) {
+    state.playPulse += 0.08;
+    const pulse = (Math.sin(state.playPulse) + 1) / 2;
+
+    const pairs = [
+      { a: 4,  b: 4  },
+      { a: 8,  b: 8  },
+      { a: 12, b: 12 },
+      { a: 16, b: 16 },
+      { a: 20, b: 20 },
+      { a: 0,  b: 0  },
+    ];
 
     ctx.save();
-    ctx.beginPath();
-    ctx.arc(startX, sy, 40, 0, Math.PI * 2 * progress);
-    ctx.strokeStyle = `rgba(168, 85, 247, ${0.3 + progress * 0.5})`;
-    ctx.lineWidth = 3;
-    ctx.stroke();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
 
-    if (progress > 0.3) {
-      const arrowX = sx;
-      const arrowY = sy;
-      const dir = dx > 0 ? 1 : -1;
+    pairs.forEach((p, idx) => {
+      const a = lm1[p.a];
+      const b = lm2[p.b];
+      if (a.x < -0.02 || a.x > 1.02 || a.y < -0.02 || a.y > 1.02) return;
+      if (b.x < -0.02 || b.x > 1.02 || b.y < -0.02 || b.y > 1.02) return;
+
+      const x1 = (1 - a.x) * w;
+      const y1 = a.y * h;
+      const x2 = (1 - b.x) * w;
+      const y2 = b.y * h;
+
+      const colorA = PLAY_RAINBOW[(idx + Math.floor(state.playPulse)) % PLAY_RAINBOW.length];
+      const colorB = PLAY_RAINBOW[(idx + Math.floor(state.playPulse) + 3) % PLAY_RAINBOW.length];
+
+      const grad = ctx.createLinearGradient(x1, y1, x2, y2);
+      grad.addColorStop(0, colorA);
+      grad.addColorStop(1, colorB);
+
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 3 + pulse * 3;
+      ctx.shadowColor = colorA;
+      ctx.shadowBlur = 18 + pulse * 12;
 
       ctx.beginPath();
-      ctx.moveTo(arrowX, arrowY);
-      ctx.lineTo(arrowX - dir * 15, arrowY - 10);
-      ctx.moveTo(arrowX, arrowY);
-      ctx.lineTo(arrowX - dir * 15, arrowY + 10);
-      ctx.strokeStyle = `rgba(168, 85, 247, ${progress})`;
-      ctx.lineWidth = 2;
+      ctx.moveTo(x1, y1);
+      const midX = (x1 + x2) / 2;
+      const midY = (y1 + y2) / 2 - 30 - idx * 4;
+      ctx.quadraticCurveTo(midX, midY, x2, y2);
       ctx.stroke();
 
-      const targetWall = WALLS[(state.currentWall + (dx > 0 ? -1 : 1) + 4) % 4];
-      ctx.font = `600 ${12 + progress * 4}px Inter, sans-serif`;
-      ctx.fillStyle = targetWall.color + (Math.round(progress * 200)).toString(16).padStart(2, '0');
-      ctx.textAlign = 'center';
-      ctx.fillText(targetWall.name, sx, sy - 50);
-    }
+      const dotR = 5 + pulse * 3;
+      ctx.shadowBlur = 22;
+      ctx.fillStyle = colorA;
+      ctx.beginPath();
+      ctx.arc(x1, y1, dotR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = colorB;
+      ctx.beginPath();
+      ctx.arc(x2, y2, dotR, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (Math.random() < 0.4) {
+        state.playParticles.push({
+          x: midX + (Math.random() - 0.5) * 40,
+          y: midY + (Math.random() - 0.5) * 40,
+          vx: (Math.random() - 0.5) * 1.5,
+          vy: -1 - Math.random() * 1.5,
+          life: 1,
+          color: colorA,
+          size: 2 + Math.random() * 3,
+        });
+      }
+    });
+
+    ctx.shadowBlur = 0;
+    state.playParticles = state.playParticles.filter(pt => pt.life > 0);
+    state.playParticles.forEach(pt => {
+      pt.x += pt.vx;
+      pt.y += pt.vy;
+      pt.life -= 0.02;
+      ctx.globalAlpha = Math.max(pt.life, 0);
+      ctx.fillStyle = pt.color;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, pt.size * pt.life, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+
+    ctx.font = '700 28px Inter, sans-serif';
+    ctx.fillStyle = `rgba(255,255,255,${0.7 + pulse * 0.3})`;
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#ff80ab';
+    ctx.shadowBlur = 20;
+    ctx.fillText('🎉  Hands Linked!  🎉', w / 2, 60);
 
     ctx.restore();
   }
 
   function drawSkeleton(ctx, landmarks, w, h) {
-    ctx.lineWidth = 1.2;
-    ctx.strokeStyle = 'rgba(0,229,255,0.15)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = state.playMode ? 'rgba(255,255,255,0.55)' : 'rgba(0,229,255,0.35)';
     HAND_CONNECTIONS.forEach(([s, e]) => {
       ctx.beginPath();
       ctx.moveTo((1 - landmarks[s].x) * w, landmarks[s].y * h);
@@ -588,9 +646,10 @@
     landmarks.forEach((lm, i) => {
       const x = (1 - lm.x) * w;
       const y = lm.y * h;
+      const isTip = FINGER_TIPS.includes(i);
       ctx.beginPath();
-      ctx.arc(x, y, FINGER_TIPS.includes(i) ? 3 : 1.5, 0, Math.PI * 2);
-      ctx.fillStyle = FINGER_TIPS.includes(i) ? 'rgba(0,229,255,0.5)' : 'rgba(255,255,255,0.2)';
+      ctx.arc(x, y, isTip ? 4 : 2, 0, Math.PI * 2);
+      ctx.fillStyle = isTip ? 'rgba(255,255,255,0.95)' : 'rgba(0,229,255,0.7)';
       ctx.fill();
     });
   }
@@ -625,24 +684,6 @@
       ctx.arc(x, y, 4, 0, Math.PI * 2);
       ctx.fillStyle = '#ff1744';
       ctx.fill();
-    } else if (gesture === 'peace') {
-      ctx.beginPath();
-      ctx.arc(x, y, 16, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(168,85,247,0.5)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(x, y, 4, 0, Math.PI * 2);
-      ctx.fillStyle = '#a855f7';
-      ctx.fill();
-      const arrowLen = 22;
-      ctx.strokeStyle = 'rgba(168,85,247,0.3)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(x - arrowLen, y); ctx.lineTo(x + arrowLen, y);
-      ctx.moveTo(x - arrowLen + 6, y - 5); ctx.lineTo(x - arrowLen, y); ctx.lineTo(x - arrowLen + 6, y + 5);
-      ctx.moveTo(x + arrowLen - 6, y - 5); ctx.lineTo(x + arrowLen, y); ctx.lineTo(x + arrowLen - 6, y + 5);
-      ctx.stroke();
     } else {
       ctx.beginPath();
       ctx.arc(x, y, 8, 0, Math.PI * 2);
@@ -650,98 +691,6 @@
       ctx.lineWidth = 1.5;
       ctx.stroke();
     }
-  }
-
-  function drawMinimap() {
-    const c = els.minimapCanvas;
-    const ctx = minimapCtx;
-    const w = c.width;
-    const h = c.height;
-    const cx = w / 2;
-    const cy = h / 2;
-    const roomSize = 36;
-
-    ctx.clearRect(0, 0, w, h);
-
-    ctx.fillStyle = 'rgba(10,10,18,0.9)';
-    ctx.fillRect(0, 0, w, h);
-
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(cx - roomSize, cy - roomSize, roomSize * 2, roomSize * 2);
-
-    const wallPositions = [
-      { x1: cx - roomSize, y1: cy - roomSize, x2: cx + roomSize, y2: cy - roomSize },
-      { x1: cx + roomSize, y1: cy - roomSize, x2: cx + roomSize, y2: cy + roomSize },
-      { x1: cx + roomSize, y1: cy + roomSize, x2: cx - roomSize, y2: cy + roomSize },
-      { x1: cx - roomSize, y1: cy + roomSize, x2: cx - roomSize, y2: cy - roomSize },
-    ];
-
-    wallPositions.forEach((wp, i) => {
-      const isActive = i === state.currentWall;
-      const hasContent = state.walls[i].strokes.length > 0;
-
-      ctx.beginPath();
-      ctx.moveTo(wp.x1, wp.y1);
-      ctx.lineTo(wp.x2, wp.y2);
-      ctx.strokeStyle = isActive ? WALLS[i].color : (hasContent ? WALLS[i].color + '60' : 'rgba(255,255,255,0.15)');
-      ctx.lineWidth = isActive ? 3 : (hasContent ? 2 : 1);
-      ctx.stroke();
-
-      if (hasContent) {
-        const mx = (wp.x1 + wp.x2) / 2;
-        const my = (wp.y1 + wp.y2) / 2;
-        const isHorizontal = wp.y1 === wp.y2;
-        const offset = 8;
-        const dx = isHorizontal ? 0 : (i === 1 ? offset : -offset);
-        const dy = isHorizontal ? (i === 0 ? -offset : offset) : 0;
-
-        ctx.beginPath();
-        ctx.arc(mx + dx, my + dy, 4, 0, Math.PI * 2);
-        ctx.fillStyle = WALLS[i].color + '80';
-        ctx.fill();
-
-        ctx.font = '500 6px Inter';
-        ctx.fillStyle = '#fff';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(state.walls[i].strokes.length, mx + dx, my + dy);
-      }
-    });
-
-    const labels = ['F', 'R', 'B', 'L'];
-    const labelPos = [
-      { x: cx, y: cy - roomSize - 10 },
-      { x: cx + roomSize + 10, y: cy },
-      { x: cx, y: cy + roomSize + 12 },
-      { x: cx - roomSize - 10, y: cy },
-    ];
-
-    labels.forEach((l, i) => {
-      ctx.font = `${i === state.currentWall ? '700' : '500'} 9px Inter`;
-      ctx.fillStyle = i === state.currentWall ? WALLS[i].color : 'rgba(255,255,255,0.3)';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(l, labelPos[i].x, labelPos[i].y);
-    });
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, 3, 0, Math.PI * 2);
-    ctx.fillStyle = '#fff';
-    ctx.fill();
-
-    const angle = [-Math.PI / 2, 0, Math.PI / 2, Math.PI][state.currentWall];
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(angle);
-    ctx.beginPath();
-    ctx.moveTo(0, -8);
-    ctx.lineTo(-4, 0);
-    ctx.lineTo(4, 0);
-    ctx.closePath();
-    ctx.fillStyle = WALLS[state.currentWall].color + '80';
-    ctx.fill();
-    ctx.restore();
   }
 
   function showToast(msg) {
